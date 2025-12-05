@@ -135,4 +135,6 @@ impl CPU {
 fn main() {
     let mut cpu = CPU::new();
     cpu.run();
+
+    println!("Hello world!")
 }
