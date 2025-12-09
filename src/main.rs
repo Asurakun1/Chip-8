@@ -124,6 +124,85 @@ impl CPU {
             /*
              * 8xy0-E instructions
              */
+            (8, _, _, 0) => {
+                //8xy0
+                // Vx = Vy
+                self.register.v_registers[x as usize] = self.register.v_registers[y as usize];
+            }
+
+            (8, _, _, 1) => {
+                //8xy1
+                // Vx = Vx OR Vy
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+
+                self.register.v_registers[x as usize] = vx | vy;
+            }
+
+            (8, _, _, 2) => {
+                //8xy2
+                // Vx = Vx AND Vy
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+
+                self.register.v_registers[x as usize] = vx & vy;
+            }
+
+            (8, _, _, 3) => {
+                //8xy3
+                // Vx = Vx XOR Vy
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+
+                self.register.v_registers[x as usize] = vx ^ vy;
+            }
+
+            (8, _, _, 4) => {
+                //8xy4
+                // Vx = Vx + Vy
+                // Vf = carry
+                let vx = self.register.v_registers[x as usize] as u16;
+                let vy = self.register.v_registers[y as usize] as u16;
+                if vx + vy > 255 {
+                    self.register.v_registers[0xF] = 1;
+                } else {
+                    self.register.v_registers[0xF] = 0;
+                }
+
+                self.register.v_registers[x as usize] = (vx + vy) as u8;
+            }
+
+            (8, _, _, 5) => {
+                //8xy5
+                // Vx = Vx - Vy
+                // VF = NOT borrow
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+
+                if vx >= vy {
+                    self.register.v_registers[0xF] = 1;
+                } else {
+                    self.register.v_registers[0xF] = 0;
+                }
+
+                self.register.v_registers[x as usize] = vx.wrapping_sub(vy);
+            }
+
+            (8, _, _, 6) => {
+                //8xy6
+                // Vx = Vx SHR 1
+                let vx = self.register.v_registers[x as usize];
+                if vx & 0x01 == 1 {
+                    self.register.v_registers[0xF] = 1;
+                } else {
+                    self.register.v_registers[0xF] = 0;
+                }
+                self.register.v_registers[x as usize] = vx / 2;
+            }
+
+            /*
+             * End of 8xy0-E instructions
+             */
             (0, _, _, _) => {
                 //nop
             }
