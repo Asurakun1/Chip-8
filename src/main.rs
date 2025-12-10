@@ -175,7 +175,7 @@ impl CPU {
             (8, _, _, 5) => {
                 //8xy5
                 // Vx = Vx - Vy
-                // VF = NOT borrow
+                // VF = NOT Borrow
                 let vx = self.register.v_registers[x as usize];
                 let vy = self.register.v_registers[y as usize];
 
@@ -200,6 +200,32 @@ impl CPU {
                 self.register.v_registers[x as usize] = vx / 2;
             }
 
+            (8, _, _, 7) => {
+                //8xy7
+                // Vx = Vy - Vx
+                // Vf = NOT Borrow
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+                if vy >= vx {
+                    self.register.v_registers[0xF] = 1;
+                } else {
+                    self.register.v_registers[0xF] = 0;
+                }
+                self.register.v_registers[x as usize] = vy.wrapping_sub(vx);
+            }
+
+            (8, _, _, 0xE) => {
+                //8xyE
+                // Vx = Vx SHL 1
+                let vx = self.register.v_registers[x as usize];
+                if (vx >> 7) & 1 == 1 {
+                    self.register.v_registers[0xF] = 1;
+                } else {
+                    self.register.v_registers[0xF] = 0;
+                }
+
+                self.register.v_registers[x as usize] = vx * 2;
+            }
             /*
              * End of 8xy0-E instructions
              */
