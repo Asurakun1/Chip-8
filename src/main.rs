@@ -1,3 +1,5 @@
+use rand::random_range;
+
 struct CPU {
     register: Register,
     stack: [u16; 64],
@@ -70,7 +72,7 @@ impl CPU {
 
             (1, _, _, _) => {
                 //Jump to location nnn
-                self.register.pc = nnn;
+                self.register.pc = nnn - 2;
             }
 
             (2, _, _, _) => {
@@ -229,6 +231,65 @@ impl CPU {
             /*
              * End of 8xy0-E instructions
              */
+            (9, _, _, 0) => {
+                //9xy0
+                // Vx != Vy
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+
+                if vx != vy {
+                    self.register.pc += 2;
+                }
+            }
+
+            (0xA, _, _, _) => {
+                //Annn
+                // I = nnn
+                self.register.index_register = nnn;
+            }
+            (0xB, _, _, _) => {
+                //Bnnn
+                // Jump to location nnn + V0
+                self.register.pc = (nnn + self.register.v_registers[0] as u16) - 2;
+            }
+
+            (0xC, _, _, _) => {
+                //Cxkk
+                // Vx = random byte AND kk
+                let rand = random_range(0..=255) as u8;
+                self.register.v_registers[x as usize] = rand & kk;
+            }
+
+            (0xD, _, _, _) => {
+                //Dxyn
+                //Display n-byte sprite starting at memory location I at (Vx, Vy)
+                // VF = collision
+                let vx = self.register.v_registers[x as usize];
+                let vy = self.register.v_registers[y as usize];
+                self.register.v_registers[0xF] = 0;
+
+                for row in 0..n {
+                    let addr = self.register.index_register + row;
+                    let pixels = self.memory[addr as usize];
+
+                    for col in 0..8 {
+                        if (pixels >> (7 - col)) & 1 == 1 {
+                            let x = (vx as u16 + col) % 64;
+                            let y = (vy as u16 + row) % 32;
+
+                            let index = (x + (y * 64)) as usize;
+
+                            //XOR
+                            if self.frame_buffer[index] {
+                                self.frame_buffer[index] = false;
+                                self.register.v_registers[0xF] = 1;
+                            } else {
+                                self.frame_buffer[index] = true;
+                            }
+                        }
+                    }
+                }
+            }
             (0, _, _, _) => {
                 //nop
             }
