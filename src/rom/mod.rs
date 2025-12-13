@@ -13,7 +13,8 @@ pub fn load_rom() -> Vec<u8> {
         file.read_to_end(&mut buffer)
             .expect("Failed to read ROM file");
 
-        return buffer;
+        buffer
+    } else {
+        include_bytes!("IBM Logo.ch8").to_vec()
     }
-    include_bytes!("IBM Logo.ch8").to_vec()
 }
