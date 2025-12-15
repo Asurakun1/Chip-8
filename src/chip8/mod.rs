@@ -1,10 +1,15 @@
 use rand::random_range;
 
+use crate::chip8::debugger::Debugger;
+pub mod debugger;
+
 pub struct CPU {
     register: Register,
     stack: [u16; 64],
     pub frame_buffer: [bool; 64 * 32],
     memory: [u8; 4096],
+    pub debug: debugger::Debugger,
+    pub keypad: [bool; 16],
 }
 
 struct Register {
@@ -14,6 +19,11 @@ struct Register {
     delay_timer: u8,
     sound_timer: u8,
     stack_pointer: u8,
+}
+
+enum Key {
+    Pressed(u16),
+    NotPresssed(u16),
 }
 
 impl Default for CPU {
@@ -36,6 +46,8 @@ impl CPU {
             stack: [0; 64],
             frame_buffer: [false; 64 * 32],
             memory: [0; 4096],
+            debug: Debugger::new(),
+            keypad: [false; 16],
         }
     }
 
@@ -58,9 +70,12 @@ impl CPU {
 
         let opcode = first_byte << 8 | second_byte;
 
-        println!(
-            "Instruction: {:04X} | Memory: {:04X}{:04X} | PC: {:04X} | SP: {:04X}",
-            opcode, first_byte, second_byte, pc, self.register.stack_pointer
+        self.debug.propagate(
+            pc as u8,
+            first_byte,
+            second_byte,
+            opcode,
+            self.register.stack_pointer,
         );
 
         //decode & execute
@@ -291,17 +306,24 @@ impl CPU {
                 self.register.v_registers[0xF] = 0;
 
                 for row in 0..n {
+                    /*
+                     * Read the sprite data stored from 0x0 up to 0x200
+                     */
                     let addr = self.register.index_register + row;
                     let pixels = self.memory[addr as usize];
 
                     for col in 0..8 {
+                        // get the exact coordinates by shifting the pixels all the way to the right and ANDING them by 1
+                        // if the AND'd bits are 1
+                        // grab the exact coords and flatten them into a 1D array by the size of the display in width
+                        // then store it in the frame buffer
                         if (pixels >> (7 - col)) & 1 == 1 {
                             let x = (vx as u16 + col) % 64;
                             let y = (vy as u16 + row) % 32;
 
                             let index = (x + (y * 64)) as usize;
 
-                            //XOR
+                            //Chip 8's design XORS the values on to the screen
                             if self.frame_buffer[index] {
                                 self.frame_buffer[index] = false;
                                 self.register.v_registers[0xF] = 1;
@@ -311,6 +333,30 @@ impl CPU {
                         }
                     }
                 }
+            }
+
+            (0xE, _, 9, 0xE) => {
+                //Ex9E
+                // Skip next instruction if key with the value of Vx is pressed
+                let key = self.register.v_registers[x as usize];
+                if self.keypad[key as usize] {
+                    self.register.pc += 2;
+                }
+            }
+
+            (0xE, _, 0xA, 1) => {
+                //ExA1
+                // Skip next instruction if key with the value of Vx is not pressed
+                let key = self.register.v_registers[x as usize];
+                if !self.keypad[key as usize] {
+                    self.register.pc += 2;
+                }
+            }
+
+            (0xF, _, 0, 7) => {
+                //Fx07
+                // set Vx = delay timer value
+                self.register.v_registers[x as usize] = self.register.delay_timer;
             }
             (0, _, _, _) => {
                 //nop
