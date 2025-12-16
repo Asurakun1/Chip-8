@@ -1,6 +1,7 @@
 #[derive(Debug, Default)]
 pub struct Debugger {
     debug: Propagate,
+    list: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]
@@ -13,6 +14,7 @@ impl Debugger {
     pub fn new() -> Self {
         Self {
             debug: Propagate::Enable,
+            list: vec![],
         }
     }
 
@@ -22,7 +24,22 @@ impl Debugger {
                 "Instructions: {:04X} | Memory: {:04X}{:04X} | PC: {:04X} | SP: {:04X}",
                 opcode, first_byte, second_byte, pc, sp
             );
-            println!("{}", key)
+
+            let length = self.list.len();
+            let is_spam = length >= 3
+                && self.list[length - 1] == key
+                && self.list[length - 2] == key
+                && self.list[length - 3] == key;
+
+            if !is_spam {
+                println!("{}", key)
+            }
+
+            if length >= 20 {
+                self.list.remove(0);
+            }
+
+            self.list.push(key);
         }
     }
 

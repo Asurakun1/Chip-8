@@ -3,6 +3,25 @@ use rand::random_range;
 use crate::chip8::debugger::Debugger;
 pub mod debugger;
 
+const FONT_SET: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
+
 pub struct CPU {
     register: Register,
     stack: [u16; 64],
@@ -21,11 +40,6 @@ struct Register {
     stack_pointer: u8,
 }
 
-enum Key {
-    Pressed(u16),
-    NotPresssed(u16),
-}
-
 impl Default for CPU {
     fn default() -> Self {
         self::CPU::new()
@@ -34,7 +48,7 @@ impl Default for CPU {
 
 impl CPU {
     pub fn new() -> Self {
-        Self {
+        let mut cpu = Self {
             register: Register {
                 v_registers: [0; 16],
                 index_register: 0,
@@ -48,7 +62,9 @@ impl CPU {
             memory: [0; 4096],
             debug: Debugger::new(),
             keypad: [false; 16],
-        }
+        };
+        cpu.memory[0..80].copy_from_slice(&FONT_SET);
+        cpu
     }
 
     pub fn load_rom(&mut self, data: &[u8]) {
@@ -357,6 +373,46 @@ impl CPU {
                 //Fx07
                 // set Vx = delay timer value
                 self.register.v_registers[x as usize] = self.register.delay_timer;
+            }
+
+            (0xF, _, 0, 0xA) => {
+                //Fx0A
+                // Wait for a key press, store the value of the key in Vx
+                let mut pressed = false;
+                for (i, key) in self.keypad.iter().enumerate() {
+                    if *key {
+                        pressed = true;
+                        self.register.v_registers[x as usize] = i as u8;
+                        break;
+                    }
+                }
+
+                if !pressed {
+                    self.register.pc -= 2;
+                }
+            }
+            (0xF, _, 1, 5) => {
+                //Fx15
+                // set delay timer = Vx
+                self.register.delay_timer = self.register.v_registers[x as usize];
+            }
+            (0xF, _, 1, 8) => {
+                //Fx18
+                // Set sound timer = Vx
+                self.register.sound_timer = self.register.v_registers[x as usize];
+            }
+            (0xF, _, 1, 0xE) => {
+                //Fx1E
+                // set I = I + Vx
+                let vx = self.register.v_registers[x as usize] as u16;
+                self.register.index_register = self.register.index_register + vx;
+            }
+            (0xF, _, 2, 9) => {
+                //Fx29
+                // Set I = Location of sprite for digit Vx
+                // All font data is stored in the first 80 bytes of memory (Vx * 5)
+                let vx = self.register.v_registers[x as usize] as u16;
+                self.register.index_register = vx * 5;
             }
             (0, _, _, _) => {
                 //nop
