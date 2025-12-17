@@ -13,7 +13,7 @@ pub enum Propagate {
 impl Debugger {
     pub fn new() -> Self {
         Self {
-            debug: Propagate::Enable,
+            debug: Propagate::Disable,
             list: vec![],
         }
     }

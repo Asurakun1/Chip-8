@@ -15,6 +15,6 @@ pub fn load_rom() -> Vec<u8> {
 
         buffer
     } else {
-        include_bytes!("IBM Logo.ch8").to_vec()
+        include_bytes!("Space Invaders [David Winter].ch8").to_vec()
     }
 }

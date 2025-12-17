@@ -414,10 +414,76 @@ impl CPU {
                 let vx = self.register.v_registers[x as usize] as u16;
                 self.register.index_register = vx * 5;
             }
+
+            (0xF, _, 3, 3) => {
+                //Fx33
+                // Store BCD representation of Vx in memory locations, I, I + 1, I + 2
+                let vx = self.register.v_registers[x as usize];
+                let a = vx / 100;
+                let b = (vx / 10) % 10;
+                let c = vx % 10;
+
+                self.memory[self.register.index_register as usize] = a;
+                self.memory[self.register.index_register as usize + 1] = b;
+                self.memory[self.register.index_register as usize + 2] = c;
+            }
+
+            (0xF, _, 5, 5) => {
+                //Fx55
+                // stores V0 to Vx in memory starting at address I.
+                // I is then set to I + x + 1
+                for index in 0..=x {
+                    let start_addr = self.register.index_register as usize;
+                    let vx = self.register.v_registers[index as usize];
+                    self.memory[start_addr + index as usize] = vx;
+                }
+                let i = self.register.index_register;
+                self.register.index_register = i + x + 1;
+            }
+
+            (0xF, _, 6, 5) => {
+                //Fx65
+                // Fills V0 to Vx with values from memory starting at address I.
+                // I is then set to I + x + 1
+                for index in 0..=x {
+                    let start_addr = self.register.index_register as usize;
+                    let value = self.memory[start_addr + index as usize];
+                    self.register.v_registers[index as usize] = value;
+                }
+                let i = self.register.index_register;
+                self.register.index_register = i + x + 1;
+            }
             (0, _, _, _) => {
                 //nop
             }
             _ => (),
         }
+    }
+
+    pub fn update_timers(&mut self) {
+        if self.register.delay_timer > 0 {
+            self.register.delay_timer -= 1;
+        }
+        if self.register.sound_timer > 0 {
+            self.register.sound_timer -= 1;
+        }
+    }
+
+    pub fn get_sound_timer(&self) -> u8 {
+        self.register.sound_timer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_bcd() {
+        let vx: u8 = 125;
+
+        let a = vx / 100;
+        let b = (vx / 10) % 10;
+        let c = vx % 10;
+        assert_eq!([1, 2, 5], [a, b, c]);
     }
 }

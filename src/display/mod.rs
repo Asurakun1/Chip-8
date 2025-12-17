@@ -1,3 +1,4 @@
+use crate::audio::Audio;
 use crate::chip8::CPU;
 use crate::chip8::debugger::Propagate;
 use sdl2::event::Event;
@@ -15,11 +16,13 @@ pub struct Display {
     height: u32,
     width: u32,
     video_subsystem: VideoSubsystem,
+    audio: Audio,
+    color: Color,
 }
 
 impl Default for Display {
     fn default() -> Self {
-        if let Ok(display) = Self::new(640, 320) {
+        if let Ok(display) = Self::new(640, 320, Color::WHITE) {
             display
         } else {
             panic!("The display has failed to initialize")
@@ -28,15 +31,18 @@ impl Default for Display {
 }
 
 impl Display {
-    pub fn new(width: u32, height: u32) -> Result<Self, Box<dyn Error>> {
+    pub fn new(width: u32, height: u32, color: Color) -> Result<Self, Box<dyn Error>> {
         let sdl2_context = sdl2::init()?;
         let video_subsystem = sdl2_context.video()?;
+        let audio = Audio::new(&sdl2_context)?;
 
         Ok(Self {
             sdl2_context,
             height,
             width,
             video_subsystem,
+            audio,
+            color,
         })
     }
 
@@ -83,7 +89,7 @@ impl Display {
                 } => {
                     if let Some(key) = self.key2btn(key) {
                         cpu.keypad[key as usize] = true;
-                        println!("Key: 0x{:X}", key)
+                        //println!("Key: 0x{:X}", key)
                     }
                 }
 
@@ -129,7 +135,7 @@ impl Display {
     fn render(&self, canvas: &mut Canvas<Window>, cpu: &CPU) -> Result<(), Box<dyn Error>> {
         canvas.set_draw_color(Color::BLACK);
         canvas.clear();
-        canvas.set_draw_color(Color::WHITE);
+        canvas.set_draw_color(self.color);
 
         for (i, pixel) in cpu.frame_buffer.iter().enumerate() {
             if *pixel {
@@ -159,8 +165,32 @@ impl Display {
         let mut event_pump = self.sdl2_context.event_pump()?;
         loop {
             self.event(&mut event_pump, cpu);
-            //tick
-            cpu.run();
+
+            /*
+             * the Chip-8 CPU logic reads from a Read Only Memory file
+             * the cpu then goes through the fetch decode cycle
+             * which then updates the timers for both the delay and sound
+             * which is then passed through to SDL2
+             *
+             *
+             * if I want to Implement swappable ROM into the CHIP-8 design
+             * there will need to be a gui layer that acts as a virtual "Cartridge" design
+             */
+
+            /*
+             * tick for 11x the sleep thread framerate 60fps * 11
+             */
+            for _ in 0..10 {
+                cpu.run();
+            }
+
+            cpu.update_timers();
+
+            if cpu.get_sound_timer() > 0 {
+                self.audio.device.resume();
+            } else {
+                self.audio.device.pause();
+            }
 
             self.render(&mut canvas, cpu)?;
 
