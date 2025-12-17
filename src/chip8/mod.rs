@@ -1,10 +1,34 @@
 use rand::random_range;
 
+use crate::chip8::debugger::Debugger;
+pub mod debugger;
+
+const FONT_SET: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
+
 pub struct CPU {
     register: Register,
     stack: [u16; 64],
     pub frame_buffer: [bool; 64 * 32],
     memory: [u8; 4096],
+    pub debug: debugger::Debugger,
+    pub keypad: [bool; 16],
 }
 
 struct Register {
@@ -24,7 +48,7 @@ impl Default for CPU {
 
 impl CPU {
     pub fn new() -> Self {
-        Self {
+        let mut cpu = Self {
             register: Register {
                 v_registers: [0; 16],
                 index_register: 0,
@@ -36,7 +60,11 @@ impl CPU {
             stack: [0; 64],
             frame_buffer: [false; 64 * 32],
             memory: [0; 4096],
-        }
+            debug: Debugger::new(),
+            keypad: [false; 16],
+        };
+        cpu.memory[0..80].copy_from_slice(&FONT_SET);
+        cpu
     }
 
     pub fn load_rom(&mut self, data: &[u8]) {
@@ -58,9 +86,12 @@ impl CPU {
 
         let opcode = first_byte << 8 | second_byte;
 
-        println!(
-            "Instruction: {:04X} | Memory: {:04X}{:04X} | PC: {:04X} | SP: {:04X}",
-            opcode, first_byte, second_byte, pc, self.register.stack_pointer
+        self.debug.propagate(
+            pc as u8,
+            first_byte,
+            second_byte,
+            opcode,
+            self.register.stack_pointer,
         );
 
         //decode & execute
@@ -291,17 +322,24 @@ impl CPU {
                 self.register.v_registers[0xF] = 0;
 
                 for row in 0..n {
+                    /*
+                     * Read the sprite data stored from 0x0 up to 0x200
+                     */
                     let addr = self.register.index_register + row;
                     let pixels = self.memory[addr as usize];
 
                     for col in 0..8 {
+                        // get the exact coordinates by shifting the pixels all the way to the right and ANDING them by 1
+                        // if the AND'd bits are 1
+                        // grab the exact coords and flatten them into a 1D array by the size of the display in width
+                        // then store it in the frame buffer
                         if (pixels >> (7 - col)) & 1 == 1 {
                             let x = (vx as u16 + col) % 64;
                             let y = (vy as u16 + row) % 32;
 
                             let index = (x + (y * 64)) as usize;
 
-                            //XOR
+                            //Chip 8's design XORS the values on to the screen
                             if self.frame_buffer[index] {
                                 self.frame_buffer[index] = false;
                                 self.register.v_registers[0xF] = 1;
@@ -312,10 +350,140 @@ impl CPU {
                     }
                 }
             }
+
+            (0xE, _, 9, 0xE) => {
+                //Ex9E
+                // Skip next instruction if key with the value of Vx is pressed
+                let key = self.register.v_registers[x as usize];
+                if self.keypad[key as usize] {
+                    self.register.pc += 2;
+                }
+            }
+
+            (0xE, _, 0xA, 1) => {
+                //ExA1
+                // Skip next instruction if key with the value of Vx is not pressed
+                let key = self.register.v_registers[x as usize];
+                if !self.keypad[key as usize] {
+                    self.register.pc += 2;
+                }
+            }
+
+            (0xF, _, 0, 7) => {
+                //Fx07
+                // set Vx = delay timer value
+                self.register.v_registers[x as usize] = self.register.delay_timer;
+            }
+
+            (0xF, _, 0, 0xA) => {
+                //Fx0A
+                // Wait for a key press, store the value of the key in Vx
+                let mut pressed = false;
+                for (i, key) in self.keypad.iter().enumerate() {
+                    if *key {
+                        pressed = true;
+                        self.register.v_registers[x as usize] = i as u8;
+                        break;
+                    }
+                }
+
+                if !pressed {
+                    self.register.pc -= 2;
+                }
+            }
+            (0xF, _, 1, 5) => {
+                //Fx15
+                // set delay timer = Vx
+                self.register.delay_timer = self.register.v_registers[x as usize];
+            }
+            (0xF, _, 1, 8) => {
+                //Fx18
+                // Set sound timer = Vx
+                self.register.sound_timer = self.register.v_registers[x as usize];
+            }
+            (0xF, _, 1, 0xE) => {
+                //Fx1E
+                // set I = I + Vx
+                let vx = self.register.v_registers[x as usize] as u16;
+                self.register.index_register = self.register.index_register + vx;
+            }
+            (0xF, _, 2, 9) => {
+                //Fx29
+                // Set I = Location of sprite for digit Vx
+                // All font data is stored in the first 80 bytes of memory (Vx * 5)
+                let vx = self.register.v_registers[x as usize] as u16;
+                self.register.index_register = vx * 5;
+            }
+
+            (0xF, _, 3, 3) => {
+                //Fx33
+                // Store BCD representation of Vx in memory locations, I, I + 1, I + 2
+                let vx = self.register.v_registers[x as usize];
+                let a = vx / 100;
+                let b = (vx / 10) % 10;
+                let c = vx % 10;
+
+                self.memory[self.register.index_register as usize] = a;
+                self.memory[self.register.index_register as usize + 1] = b;
+                self.memory[self.register.index_register as usize + 2] = c;
+            }
+
+            (0xF, _, 5, 5) => {
+                //Fx55
+                // stores V0 to Vx in memory starting at address I.
+                // I is then set to I + x + 1
+                for index in 0..=x {
+                    let start_addr = self.register.index_register as usize;
+                    let vx = self.register.v_registers[index as usize];
+                    self.memory[start_addr + index as usize] = vx;
+                }
+                let i = self.register.index_register;
+                self.register.index_register = i + x + 1;
+            }
+
+            (0xF, _, 6, 5) => {
+                //Fx65
+                // Fills V0 to Vx with values from memory starting at address I.
+                // I is then set to I + x + 1
+                for index in 0..=x {
+                    let start_addr = self.register.index_register as usize;
+                    let value = self.memory[start_addr + index as usize];
+                    self.register.v_registers[index as usize] = value;
+                }
+                let i = self.register.index_register;
+                self.register.index_register = i + x + 1;
+            }
             (0, _, _, _) => {
                 //nop
             }
             _ => (),
         }
+    }
+
+    pub fn update_timers(&mut self) {
+        if self.register.delay_timer > 0 {
+            self.register.delay_timer -= 1;
+        }
+        if self.register.sound_timer > 0 {
+            self.register.sound_timer -= 1;
+        }
+    }
+
+    pub fn get_sound_timer(&self) -> u8 {
+        self.register.sound_timer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_bcd() {
+        let vx: u8 = 125;
+
+        let a = vx / 100;
+        let b = (vx / 10) % 10;
+        let c = vx % 10;
+        assert_eq!([1, 2, 5], [a, b, c]);
     }
 }
