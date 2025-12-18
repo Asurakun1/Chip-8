@@ -405,7 +405,7 @@ impl CPU {
                 //Fx1E
                 // set I = I + Vx
                 let vx = self.register.v_registers[x as usize] as u16;
-                self.register.index_register = self.register.index_register + vx;
+                self.register.index_register += vx;
             }
             (0xF, _, 2, 9) => {
                 //Fx29

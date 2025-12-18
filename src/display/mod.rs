@@ -11,6 +11,8 @@ use sdl2::{EventPump, Sdl, VideoSubsystem};
 use std::error::Error;
 use std::time::Duration;
 
+const FADE_SPEED: u8 = 40;
+
 pub struct Display {
     sdl2_context: Sdl,
     height: u32,
@@ -18,15 +20,12 @@ pub struct Display {
     video_subsystem: VideoSubsystem,
     audio: Audio,
     color: Color,
+    pixel_decay: [u8; 64 * 32],
 }
 
 impl Default for Display {
     fn default() -> Self {
-        if let Ok(display) = Self::new(640, 320, Color::WHITE) {
-            display
-        } else {
-            panic!("The display has failed to initialize")
-        }
+        Self::new(640, 320, Color::WHITE).unwrap()
     }
 }
 
@@ -35,7 +34,7 @@ impl Display {
         let sdl2_context = sdl2::init()?;
         let video_subsystem = sdl2_context.video()?;
         let audio = Audio::new(&sdl2_context)?;
-
+        let pixel_decay = [0; 64 * 32];
         Ok(Self {
             sdl2_context,
             height,
@@ -43,6 +42,7 @@ impl Display {
             video_subsystem,
             audio,
             color,
+            pixel_decay,
         })
     }
 
@@ -132,18 +132,39 @@ impl Display {
         }
     }
 
-    fn render(&self, canvas: &mut Canvas<Window>, cpu: &CPU) -> Result<(), Box<dyn Error>> {
+    fn render(&mut self, canvas: &mut Canvas<Window>, cpu: &CPU) -> Result<(), Box<dyn Error>> {
         canvas.set_draw_color(Color::BLACK);
         canvas.clear();
         canvas.set_draw_color(self.color);
 
         for (i, pixel) in cpu.frame_buffer.iter().enumerate() {
             if *pixel {
-                //get the x and y from the 1D array frame buffer
-                let x = i % 64;
-                let y = i / 64;
+                self.pixel_decay[i] = 255;
+            } else if self.pixel_decay[i] > 0 {
+                self.pixel_decay[i] = self.pixel_decay[i].saturating_sub(FADE_SPEED);
+            }
 
-                let rect = Rect::new(x as i32, y as i32, 1, 1);
+            //get the x and y from the 1D array frame buffer
+            let x = i % 64;
+            let y = i / 64;
+
+            let rect = Rect::new(x as i32, y as i32, 1, 1);
+
+            /*
+             * simulate oscilating fade from the 1980s
+             * with phosphorus Television
+             */
+            if self.pixel_decay[i] > 0 {
+                let brightness = self.pixel_decay[i] as f32 / 255.0;
+                let (r, g, b, a) = self.color.rgba();
+
+                let color = Color::RGBA(
+                    (r as f32 * brightness) as u8,
+                    (g as f32 * brightness) as u8,
+                    (b as f32 * brightness) as u8,
+                    (a as f32 * brightness) as u8,
+                );
+                canvas.set_draw_color(color);
                 canvas.fill_rect(rect)?;
             }
         }
@@ -163,7 +184,9 @@ impl Display {
         canvas.set_logical_size(64, 32)?;
 
         let mut event_pump = self.sdl2_context.event_pump()?;
+        let target_frame_duration = Duration::from_nanos(1_000_000_000u64 / 60);
         loop {
+            let frame_start = std::time::Instant::now();
             self.event(&mut event_pump, cpu);
 
             /*
@@ -178,7 +201,7 @@ impl Display {
              */
 
             /*
-             * tick for 11x the sleep thread framerate 60fps * 11
+             * tick for 10x the sleep thread framerate 60fps * 10
              */
             for _ in 0..10 {
                 cpu.run();
@@ -194,7 +217,10 @@ impl Display {
 
             self.render(&mut canvas, cpu)?;
 
-            std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+            let elapsed_time = frame_start.elapsed();
+            if elapsed_time < target_frame_duration {
+                std::thread::sleep(target_frame_duration - elapsed_time);
+            }
         }
     }
 }
